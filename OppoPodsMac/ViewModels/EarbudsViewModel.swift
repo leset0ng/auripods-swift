@@ -17,6 +17,7 @@ final class EarbudsViewModel: ObservableObject {
     private var terminationObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     private var knownDeviceAddresses: Set<String>
+    private var lastConnectionPopupDeviceAddress: String?
 
     var ancMode: ANCMode {
         state.ancMode
@@ -105,11 +106,6 @@ final class EarbudsViewModel: ObservableObject {
         do {
             let battery = try await client.refreshBattery(deviceName: deviceName)
             state.battery = battery
-            ConnectionPopupWindowController.shared.showConnectedIfNeeded(
-                deviceName: deviceName,
-                batteryLevel: battery.averageLevel,
-                imageName: DeviceImageProvider.shared.primaryImageName(for: state)
-            )
             state.connectionStatus = .connected
             state.appConnected = true
             lastRefreshDate = Date()
@@ -202,11 +198,14 @@ final class EarbudsViewModel: ObservableObject {
         state.currentDevice = snapshot
         rememberDeviceAddress(snapshot.address)
         appendDebugEvent("system bluetooth connected \(snapshot.name)")
-        ConnectionPopupWindowController.shared.showConnected(
-            deviceName: snapshot.name,
-            batteryLevel: nil,
-            imageName: DeviceImageProvider.shared.primaryImageName(for: snapshot)
-        )
+        if lastConnectionPopupDeviceAddress != snapshot.address {
+            lastConnectionPopupDeviceAddress = snapshot.address
+            ConnectionPopupWindowController.shared.showConnected(
+                deviceName: snapshot.name,
+                batteryLevel: nil,
+                imageName: DeviceImageProvider.shared.primaryImageName(for: snapshot)
+            )
+        }
 
         await connect(isAutomatic: true, snapshot: snapshot)
     }
@@ -215,6 +214,9 @@ final class EarbudsViewModel: ObservableObject {
         guard isCurrentDevice(snapshot) else { return }
 
         appendDebugEvent("system bluetooth disconnected \(snapshot.name)")
+        if lastConnectionPopupDeviceAddress == snapshot.address {
+            lastConnectionPopupDeviceAddress = nil
+        }
         ConnectionPopupWindowController.shared.hide()
         stopBackgroundTasks()
 
@@ -246,11 +248,6 @@ final class EarbudsViewModel: ObservableObject {
             let battery = try await client.connect(deviceName: deviceName)
 
             state.battery = battery
-            ConnectionPopupWindowController.shared.showConnectedIfNeeded(
-                deviceName: deviceName,
-                batteryLevel: battery.averageLevel,
-                imageName: DeviceImageProvider.shared.primaryImageName(for: state)
-            )
             state.connectionStatus = .connected
             state.systemBluetoothConnected = true
             state.appConnected = true

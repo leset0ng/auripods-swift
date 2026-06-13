@@ -31,9 +31,8 @@ struct MainWindowView: View {
         }
         .background(.thinMaterial)
         .containerBackground(.thinMaterial, for: .window)
-        .ignoresSafeArea(.container, edges: .top)
-        .mainWindowTitleBarAppearance()
-        .frame(minWidth: 768, idealWidth: 768, maxWidth: 768, minHeight: 720, idealHeight: 720, maxHeight: 1440)
+        .mainWindowBehavior(title: currentPageTitle)
+        .frame(minWidth: 512, idealWidth: 648, maxWidth: 768, minHeight: 720, idealHeight: 840, maxHeight: 1440)
         .navigationTitle(currentPageTitle)
         .onAppear {
             selectCurrentDeviceIfNeeded()
@@ -51,8 +50,8 @@ struct MainWindowView: View {
         switch currentPage {
         case .home:
             return ""
-        case .device(let deviceID):
-            return deviceID == currentDevice.id ? currentDevice.displayName : ""
+        case .device:
+            return currentDevice.displayName
         case .logs:
             return "日志"
         case .settings:
@@ -474,10 +473,47 @@ private struct DeviceSidebarRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("刷新电量") {
+                Task {
+                    await viewModel.refreshBattery()
+                }
+            }
+            .disabled(!canRefreshBattery)
+
+            Button("重连") {
+                Task {
+                    await viewModel.reconnect()
+                }
+            }
+            .disabled(viewModel.isBusy)
+
+            Button("连接") {
+                Task {
+                    await viewModel.connect()
+                }
+            }
+            .disabled(!canConnect)
+        }
     }
 
     private var selectionBackground: Color {
         isSelected ? Color.primary.opacity(0.10) : Color.clear
+    }
+
+    private var canRefreshBattery: Bool {
+        viewModel.state.connectionStatus == .connected && !viewModel.isBusy
+    }
+
+    private var canConnect: Bool {
+        guard !viewModel.isBusy else { return false }
+
+        switch viewModel.state.connectionStatus {
+        case .disconnected, .error, .handshakeFailed:
+            return true
+        case .connected, .connecting, .handshaking, .reconnecting:
+            return false
+        }
     }
 }
 
@@ -641,17 +677,23 @@ private struct MainWindowCard<Content: View>: View {
 
 
 private extension View {
-    func mainWindowTitleBarAppearance() -> some View {
-        background(MainWindowTitleBarConfigurator())
+    func mainWindowBehavior(title: String) -> some View {
+        background(MainWindowConfigurator(title: title))
     }
 }
 
-private struct MainWindowTitleBarConfigurator: NSViewRepresentable {
+private struct MainWindowConfigurator: NSViewRepresentable {
+    let title: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
 
         DispatchQueue.main.async {
-            configureWindow(for: view)
+            configureWindow(for: view, coordinator: context.coordinator)
         }
 
         return view
@@ -659,29 +701,75 @@ private struct MainWindowTitleBarConfigurator: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            configureWindow(for: nsView)
+            configureWindow(for: nsView, coordinator: context.coordinator)
         }
     }
 
-    private func configureWindow(for view: NSView) {
+    private func configureWindow(for view: NSView, coordinator: Coordinator) {
         guard let window = view.window else { return }
 
-        window.titleVisibility = .hidden
+        window.delegate = coordinator
+        window.title = title
+        window.titleVisibility = title.isEmpty ? .hidden : .visible
         window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
+        window.titlebarSeparatorStyle = .automatic
         window.isMovableByWindowBackground = true
         window.styleMask.insert(.fullSizeContentView)
         window.styleMask.remove(.fullScreen)
         window.collectionBehavior.remove(.fullScreenPrimary)
         window.collectionBehavior.remove(.fullScreenAuxiliary)
-        window.minSize = CGSize(width: 768, height: 720)
-        window.maxSize = CGSize(width: 768, height: 1440)
+        window.minSize = coordinator.minimumSize
+        window.maxSize = coordinator.maximumSize
+        window.contentMinSize = coordinator.minimumSize
+        window.contentMaxSize = coordinator.maximumSize
+        coordinator.clampWindowFrame(window)
         window.standardWindowButton(.zoomButton)?.isEnabled = false
 
         window.isOpaque = false
         window.backgroundColor = .clear
-
         window.toolbar?.showsBaselineSeparator = false
+    }
+
+    final class Coordinator: NSObject, NSWindowDelegate {
+        let minimumSize = NSSize(width: 512, height: 720)
+        let maximumSize = NSSize(width: 768, height: 1440)
+
+        func windowShouldZoom(_ sender: NSWindow, toFrame newFrame: NSRect) -> Bool {
+            false
+        }
+
+        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+            window.frame
+        }
+
+        func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+            clampedSize(frameSize)
+        }
+
+        func windowDidResize(_ notification: Notification) {
+            guard let window = notification.object as? NSWindow else { return }
+            clampWindowFrame(window)
+        }
+
+        func clampWindowFrame(_ window: NSWindow) {
+            let currentFrame = window.frame
+            let targetSize = clampedSize(currentFrame.size)
+
+            guard currentFrame.size != targetSize else { return }
+
+            var targetFrame = currentFrame
+            let topEdge = targetFrame.maxY
+            targetFrame.size = targetSize
+            targetFrame.origin.y = topEdge - targetSize.height
+            window.setFrame(targetFrame, display: true)
+        }
+
+        private func clampedSize(_ size: NSSize) -> NSSize {
+            NSSize(
+                width: min(max(size.width, minimumSize.width), maximumSize.width),
+                height: min(max(size.height, minimumSize.height), maximumSize.height)
+            )
+        }
     }
 }
 

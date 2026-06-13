@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -6,15 +7,7 @@ struct OppoPodsMacApp: App {
 
     init() {
         BluetoothMonitor.shared.start()
-
-        #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            ConnectionPopupWindowController.shared.showConnectedIfNeeded(
-                deviceName: "OPPO Enco Test",
-                batteryLevel: 88
-            )
-        }
-        #endif
+        Self.configureApplicationIcon()
     }
 
     var body: some Scene {
@@ -26,6 +19,30 @@ struct OppoPodsMacApp: App {
                 }
         }
         .defaultSize(width: 768, height: 720)
+        .commands {
+            CommandMenu("设备") {
+                Button("刷新电量") {
+                    Task {
+                        await viewModel.refreshBattery()
+                    }
+                }
+                .disabled(!canRefreshBattery)
+
+                Button("重连") {
+                    Task {
+                        await viewModel.reconnect()
+                    }
+                }
+                .disabled(viewModel.isBusy)
+
+                Button("连接") {
+                    Task {
+                        await viewModel.connect()
+                    }
+                }
+                .disabled(!canConnect)
+            }
+        }
 
         MenuBarExtra {
             MenuBarContentView()
@@ -40,5 +57,29 @@ struct OppoPodsMacApp: App {
                 .accessibilityLabel("OppoPodsMac")
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private static func configureApplicationIcon() {
+        guard let iconURL = Bundle.main.url(forResource: "oppoPods", withExtension: "icns"),
+              let iconImage = NSImage(contentsOf: iconURL) else {
+            return
+        }
+
+        NSApplication.shared.applicationIconImage = iconImage
+    }
+
+    private var canRefreshBattery: Bool {
+        viewModel.state.connectionStatus == .connected && !viewModel.isBusy
+    }
+
+    private var canConnect: Bool {
+        guard !viewModel.isBusy else { return false }
+
+        switch viewModel.state.connectionStatus {
+        case .disconnected, .error, .handshakeFailed:
+            return true
+        case .connected, .connecting, .handshaking, .reconnecting:
+            return false
+        }
     }
 }
