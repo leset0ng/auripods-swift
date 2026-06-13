@@ -67,6 +67,31 @@ enum OppoFrameParser {
         return false
     }
 
+    static func decodeANCMode(from data: Data) -> ANCMode? {
+        let bytes = Array(data)
+        guard bytes.count >= 6, bytes.contains(0xAA) else { return nil }
+
+        for index in 0..<(bytes.count - 1) {
+            let isModeFrame = (bytes[index] == 0x0C && bytes[index + 1] == 0x81)
+                || (bytes[index] == 0x04 && bytes[index + 1] == 0x02)
+            guard isModeFrame else { continue }
+
+            if containsANCModePayload(0x01, in: bytes, from: index + 2) {
+                return .off
+            }
+
+            if containsANCModePayload(0x02, in: bytes, from: index + 2) {
+                return .noiseCancellation
+            }
+
+            if containsANCModePayload(0x04, in: bytes, from: index + 2) {
+                return .transparency
+            }
+        }
+
+        return nil
+    }
+
     private static func parseBatteryFields(in bytes: [UInt8], after startIndex: Int) -> (left: UInt8, right: UInt8, batteryCase: UInt8)? {
         guard startIndex <= bytes.count - 7 else { return nil }
 

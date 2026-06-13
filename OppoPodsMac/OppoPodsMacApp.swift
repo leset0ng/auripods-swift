@@ -4,6 +4,19 @@ import SwiftUI
 struct OppoPodsMacApp: App {
     @StateObject private var viewModel = EarbudsViewModel()
 
+    init() {
+        BluetoothMonitor.shared.start()
+
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            ConnectionPopupWindowController.shared.showConnectedIfNeeded(
+                deviceName: "OPPO Enco Test",
+                batteryLevel: 88
+            )
+        }
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup("OppoPodsMac", id: "main") {
             MainWindowView()

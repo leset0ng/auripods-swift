@@ -62,6 +62,10 @@ final class OppoProtocol {
         try await backend.refreshBattery(deviceName: deviceName)
     }
 
+    func refreshANC(deviceName: String) async throws -> ANCMode {
+        try await backend.refreshANC(deviceName: deviceName)
+    }
+
     func setANC(_ mode: ANCMode, deviceName: String) async throws {
         try await backend.setANC(mode, deviceName: deviceName)
     }
@@ -97,10 +101,14 @@ actor OppoProtocolBackend {
     }
 
     func disconnect() {
+        connectTask?.cancel()
+        connectTask = nil
         closeConnection()
         latestBattery = .unknown
         activeDeviceName = nil
         connectionState = .disconnected
+        isRefreshingBattery = false
+        inFlightCommandName = nil
     }
 
     func refreshBattery(deviceName: String) async throws -> BatteryState {
@@ -150,6 +158,20 @@ actor OppoProtocolBackend {
             let elapsed = Date().timeIntervalSince(startedAt)
             emit(String(format: "setANC(noiseCancellation) completed in %.3fs", elapsed))
         }
+    }
+
+    func refreshANC(deviceName: String) async throws -> ANCMode {
+        activeDeviceName = deviceName
+        try await connectIfNeeded(deviceName: deviceName)
+
+        let responses = try await send(OppoCommands.queryANC)
+        for frame in responses {
+            if let mode = OppoFrameParser.decodeANCMode(from: frame) {
+                return mode
+            }
+        }
+
+        throw OppoProtocolError.commandTimeout(OppoCommands.queryANC.name)
     }
 
     private func connectIfNeeded(deviceName: String) async throws {
