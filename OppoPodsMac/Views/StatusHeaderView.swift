@@ -31,7 +31,13 @@ struct StatusHeaderView: View {
     }
     
     var body: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 16) {
+            DeviceImageView(
+                imageName: DeviceImageProvider.shared.primaryImageName(for: viewModel.state),
+                fallbackSystemName: "headphones",
+                size: CGSize(width: 112, height: 112)
+            )
+
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Circle()
@@ -64,6 +70,7 @@ struct StatusHeaderView: View {
 
                 Text(viewModel.state.deviceName)
                     .font(.largeTitle)
+                    .lineLimit(2)
             }
 
             Spacer()

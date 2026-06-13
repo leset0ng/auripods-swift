@@ -15,16 +15,16 @@ final class ConnectionPopupWindowController {
 
     private init() {}
 
-    nonisolated func showConnected(deviceName: String, batteryLevel: Int?) {
-        showConnectedIfNeeded(deviceName: deviceName, batteryLevel: batteryLevel)
+    nonisolated func showConnected(deviceName: String, batteryLevel: Int?, imageName: String? = nil) {
+        showConnectedIfNeeded(deviceName: deviceName, batteryLevel: batteryLevel, imageName: imageName)
     }
 
-    nonisolated func showConnectedIfNeeded(deviceName: String, batteryLevel: Int?) {
+    nonisolated func showConnectedIfNeeded(deviceName: String, batteryLevel: Int?, imageName: String? = nil) {
         debugLog("showConnectedIfNeeded requested device=\(deviceName), battery=\(batteryLevel.map(String.init) ?? "nil"), mainThread=\(Thread.isMainThread)")
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.showConnectedOnMain(deviceName: deviceName, batteryLevel: batteryLevel)
+            self.showConnectedOnMain(deviceName: deviceName, batteryLevel: batteryLevel, imageName: imageName)
         }
     }
 
@@ -46,7 +46,7 @@ final class ConnectionPopupWindowController {
         }
     }
 
-    private func showConnectedOnMain(deviceName: String, batteryLevel: Int?) {
+    private func showConnectedOnMain(deviceName: String, batteryLevel: Int?, imageName: String?) {
         debugLogOnMain("showConnectedIfNeeded entered mainThread=\(Thread.isMainThread)")
 
         if hideWorkItem != nil {
@@ -81,6 +81,7 @@ final class ConnectionPopupWindowController {
         state.deviceName = deviceName
         state.status = .connected
         state.batteryLevel = batteryLevel
+        state.imageName = imageName ?? DeviceImageProvider.shared.primaryImageName(modelName: deviceName)
         state.isHiding = false
 
         let screen = screenForPopup()
@@ -148,6 +149,7 @@ final class ConnectionPopupWindowController {
         guard let panel, panel.isVisible || state.isPresented else {
             state.isPresented = false
             state.isHiding = false
+            state.imageName = nil
             debugLogOnMain("hide skipped no visible panel")
             return
         }
@@ -169,6 +171,7 @@ final class ConnectionPopupWindowController {
                 guard let self, generation == self.animationGeneration else { return }
                 panel?.orderOut(nil)
                 self.state.isHiding = false
+                self.state.imageName = nil
                 self.debugLogOnMain("hide completed orderOut isVisible=\(panel?.isVisible ?? false)")
             }
         }

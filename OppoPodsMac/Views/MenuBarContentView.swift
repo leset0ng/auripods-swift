@@ -34,38 +34,42 @@ struct MenuBarContentView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(statusDotColor)
-                        .frame(width: 8, height: 8)
-                        .opacity(shouldBlinkStatusDot ? (blinkStatusDot ? 0.25 : 1.0) : 1.0)
-                        .onAppear {
-                            blinkStatusDot = false
+            HStack(alignment: .center, spacing: 12) {
 
-                            if shouldBlinkStatusDot {
-                                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                                    blinkStatusDot = true
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(statusDotColor)
+                            .frame(width: 8, height: 8)
+                            .opacity(shouldBlinkStatusDot ? (blinkStatusDot ? 0.25 : 1.0) : 1.0)
+                            .onAppear {
+                                blinkStatusDot = false
+
+                                if shouldBlinkStatusDot {
+                                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                                        blinkStatusDot = true
+                                    }
                                 }
                             }
-                        }
-                        .onChange(of: shouldBlinkStatusDot) { _, isBlinking in
-                            blinkStatusDot = false
+                            .onChange(of: shouldBlinkStatusDot) { _, isBlinking in
+                                blinkStatusDot = false
 
-                            if isBlinking {
-                                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                                    blinkStatusDot = true
+                                if isBlinking {
+                                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                                        blinkStatusDot = true
+                                    }
                                 }
                             }
-                        }
 
-                    Text(viewModel.state.connectionStatus.localizedTitle)
-                        .font(.callout) // 比 caption 大一号
-                        .foregroundStyle(.secondary) // 文字颜色固定，不跟状态变
+                        Text(viewModel.state.connectionStatus.localizedTitle)
+                            .font(.callout) // 比 caption 大一号
+                            .foregroundStyle(.secondary) // 文字颜色固定，不跟状态变
+                    }
+
+                    Text(viewModel.state.deviceName)
+                        .font(.largeTitle)
+                        .lineLimit(2)
                 }
-
-                Text(viewModel.state.deviceName)
-                    .font(.largeTitle)
             }
 
             HStack() {
@@ -95,6 +99,21 @@ struct MenuBarContentView: View {
                         .accessibilityLabel("Case")
                 }
             }
+            GeometryReader { geometry in
+                DeviceImageView(
+                    imageName: DeviceImageProvider.shared.primaryImageName(for: viewModel.state),
+                    fallbackSystemName: "headphones"
+                )
+                .frame(width: geometry.size.width, height: geometry.size.width)
+                .scaleEffect(1)
+                .offset(x: -4, y: 0)
+                .position(x: geometry.size.width / 2, y: geometry.size.width / 2)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 260)
+            .padding(.top, -48)
+            .padding(.bottom, 0)
+            .clipped()
 
             Divider()
 

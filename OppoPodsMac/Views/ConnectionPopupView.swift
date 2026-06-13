@@ -20,6 +20,7 @@ final class ConnectionPopupState: ObservableObject {
     @Published var deviceName = ""
     @Published var status: ConnectionPopupStatus = .connected
     @Published var batteryLevel: Int?
+    @Published var imageName: String?
     @Published var isPresented = false
     @Published var isHiding = false
 }
@@ -58,12 +59,15 @@ struct ConnectionPopupView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, 72)
+            .padding(.horizontal, 84)
 
             HStack {
-                deviceImage
-                    .frame(width: 28, height: 28)
-                    .frame(width: 34, height: 34)
+                DeviceImageView(
+                    imageName: state.imageName,
+                    fallbackSystemName: "headphones",
+                    size: CGSize(width: 48, height: 48)
+                )
+                .frame(width: 46, height: 46)
 
                 Spacer()
 
@@ -88,25 +92,13 @@ struct ConnectionPopupView: View {
                 .stroke(.white.opacity(0.2), lineWidth: 1)
         }
     }
-
-    @ViewBuilder
-    private var deviceImage: some View {
-        if NSImage(named: "oppobuds.bud.large") != nil {
-            Image("oppobuds.bud.large")
-                .resizable()
-                .scaledToFit()
-                .symbolRenderingMode(.monochrome)
-        } else {
-            Image(systemName: "headphones")
-                .font(.system(size: 52, weight: .regular))
-        }
-    }
 }
 
 #Preview {
     let state = ConnectionPopupState()
     state.deviceName = "OPPO Enco Air4 Pro"
     state.batteryLevel = 86
+    state.imageName = DeviceImageProvider.shared.primaryImageName(modelName: state.deviceName)
     state.isPresented = true
 
     return ConnectionPopupView(state: state)
