@@ -53,7 +53,7 @@ struct PairedDevice: Identifiable, Equatable {
             availableImageNames: provider.availableImageNames(for: state),
             snapshot: state.currentDevice,
             isSystemConnected: state.systemBluetoothConnected,
-            isAppControllable: state.currentDevice.map { OppoDeviceProfile.isLikelyOppoAudioDevice($0.name) } ?? true,
+            isAppControllable: state.currentDevice.map { HeadphoneAdapterRegistry.shared.canControl($0) } ?? true,
             fallbackSystemName: state.currentDevice?.fallbackSystemName ?? "headphones"
         )
     }
@@ -70,7 +70,7 @@ struct PairedDevice: Identifiable, Equatable {
             availableImageNames: provider.availableImageNames(for: snapshot),
             snapshot: snapshot,
             isSystemConnected: snapshot.isConnected,
-            isAppControllable: isAppControllable ?? OppoDeviceProfile.isLikelyOppoAudioDevice(snapshot.name),
+            isAppControllable: isAppControllable ?? HeadphoneAdapterRegistry.shared.canControl(snapshot),
             fallbackSystemName: snapshot.fallbackSystemName
         )
     }

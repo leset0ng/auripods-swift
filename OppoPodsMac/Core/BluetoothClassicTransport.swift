@@ -67,12 +67,12 @@ final class BluetoothClassicTransport {
     ) throws -> SafeRfcommConnection {
         let device = try findDevice(identifier: deviceIdentifier)
         let deviceName = device.name ?? fallbackName
-        let profile = OppoDeviceProfile.profile(for: deviceName)
+        let profile = HeadphoneAdapterRegistry.shared.profile(for: deviceName)
         var lastError: Error?
 
         onEvent("device \(deviceName)")
 
-        for channelID in profile.channelIDs {
+        for channelID in profile.rfcommChannelIDs {
             do {
                 return try SafeRfcommConnection.connect(
                     device: device,

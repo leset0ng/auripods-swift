@@ -10,7 +10,9 @@ final class EarbudsViewModel: ObservableObject {
     @Published private(set) var isWritingANC = false
     @Published private(set) var lastRefreshDate: Date?
 
-    private let protocolClient = OppoProtocol()
+    private let adapterRegistry = HeadphoneAdapterRegistry.shared
+    private var headphoneManager: any HeadphoneManaging
+    private var activeAdapterID: String
     private let knownDeviceAddressesKey = "knownDeviceAddresses"
     private var hasStarted = false
     private var autoRefreshTask: Task<Void, Never>?
@@ -49,14 +51,13 @@ final class EarbudsViewModel: ObservableObject {
         return devices
     }
 
-    init() {
+    init(headphoneManager: (any HeadphoneManaging)? = nil) {
+        let defaultAdapter = HeadphoneAdapterRegistry.shared.defaultAdapter
+        self.headphoneManager = headphoneManager ?? defaultAdapter.makeManager()
+        self.activeAdapterID = headphoneManager == nil ? defaultAdapter.id : "injected"
         knownDeviceAddresses = Set(UserDefaults.standard.stringArray(forKey: knownDeviceAddressesKey) ?? [])
 
-        protocolClient.onEvent = { [weak self] event in
-            Task { @MainActor in
-                self?.appendDebugEvent(event)
-            }
-        }
+        configureEventHandler()
 
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -66,7 +67,7 @@ final class EarbudsViewModel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.stopAutoRefresh()
-                await self.protocolClient.disconnect()
+                await self.headphoneManager.disconnect()
             }
         }
 
@@ -118,7 +119,7 @@ final class EarbudsViewModel: ObservableObject {
         state.ancMode = .off
         appendDebugEvent("reconnect")
 
-        let client = protocolClient
+        let client = headphoneManager
         await client.disconnect()
 
         await connect(isAutomatic: false)
@@ -135,9 +136,14 @@ final class EarbudsViewModel: ObservableObject {
         if let currentDevice = state.currentDevice, !isTargetDevice(currentDevice) {
             return
         }
+        if let currentDevice = state.currentDevice {
+            await selectAdapter(for: currentDevice)
+        } else {
+            await selectAdapter(forDeviceName: state.deviceName)
+        }
         isBusy = true
 
-        let client = protocolClient
+        let client = headphoneManager
         let currentDevice = state.currentDevice
 
         do {
@@ -151,7 +157,7 @@ final class EarbudsViewModel: ObservableObject {
             state.connectionStatus = .connected
             state.appConnected = true
             lastRefreshDate = Date()
-        } catch let error as OppoProtocolError where error == .batteryDecodeFailed {
+        } catch where client.isBatteryDecodeFailure(error) {
             state.battery = .unknown
             ConnectionPopupWindowController.shared.updateBatteryLevel(nil)
             state.lastError = error.localizedDescription
@@ -172,11 +178,16 @@ final class EarbudsViewModel: ObservableObject {
         if let currentDevice = state.currentDevice, !isTargetDevice(currentDevice) {
             return
         }
+        if let currentDevice = state.currentDevice {
+            await selectAdapter(for: currentDevice)
+        } else {
+            await selectAdapter(forDeviceName: state.deviceName)
+        }
 
         isBusy = true
         isWritingANC = true
         state.lastError = nil
-        let client = protocolClient
+        let client = headphoneManager
         let currentDevice = state.currentDevice
 
         do {
@@ -189,7 +200,7 @@ final class EarbudsViewModel: ObservableObject {
             state.connectionStatus = .connected
             state.appConnected = true
             startAutoRefresh()
-        } catch let error as OppoProtocolError where error == .handshakeFailed {
+        } catch where client.isHandshakeFailure(error) {
             state.appConnected = false
             state.connectionStatus = .handshakeFailed
             state.lastError = error.localizedDescription
@@ -214,6 +225,33 @@ final class EarbudsViewModel: ObservableObject {
         if debugEvents.count > 50 {
             debugEvents.removeFirst(debugEvents.count - 50)
         }
+    }
+
+    private func configureEventHandler() {
+        headphoneManager.onEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.appendDebugEvent(event)
+            }
+        }
+    }
+
+    private func selectAdapter(for snapshot: BluetoothDeviceSnapshot) async {
+        await selectAdapter(adapterRegistry.adapter(for: snapshot) ?? adapterRegistry.defaultAdapter)
+    }
+
+    private func selectAdapter(forDeviceName deviceName: String) async {
+        await selectAdapter(adapterRegistry.adapter(forDeviceName: deviceName) ?? adapterRegistry.defaultAdapter)
+    }
+
+    private func selectAdapter(_ adapter: any HeadphoneAdapter) async {
+        guard activeAdapterID != adapter.id else { return }
+
+        let previousManager = headphoneManager
+        await previousManager.disconnect()
+        headphoneManager = adapter.makeManager()
+        activeAdapterID = adapter.id
+        configureEventHandler()
+        appendDebugEvent("adapter selected \(adapter.displayName)")
     }
 
     private func subscribeToBluetoothMonitor() {
@@ -276,7 +314,7 @@ final class EarbudsViewModel: ObservableObject {
         ConnectionPopupWindowController.shared.hide()
         stopBackgroundTasks()
 
-        let client = protocolClient
+        let client = headphoneManager
         await client.disconnect()
         markDisconnected()
     }
@@ -288,10 +326,16 @@ final class EarbudsViewModel: ObservableObject {
             return
         }
 
+        if let snapshot {
+            await selectAdapter(for: snapshot)
+        } else {
+            await selectAdapter(forDeviceName: state.deviceName)
+        }
+
         if let snapshot,
            state.connectionStatus == .connected,
            state.currentDevice?.id != snapshot.id {
-            let client = protocolClient
+            let client = headphoneManager
             await client.disconnect()
             state.connectionStatus = .disconnected
             state.appConnected = false
@@ -313,7 +357,7 @@ final class EarbudsViewModel: ObservableObject {
         state.lastError = nil
         appendDebugEvent(isAutomatic ? "auto connect attempt" : "connect attempt")
 
-        let client = protocolClient
+        let client = headphoneManager
         let currentDevice = state.currentDevice
 
         do {
@@ -335,7 +379,7 @@ final class EarbudsViewModel: ObservableObject {
             await refreshANCStatusAfterConnect(device: currentDevice)
             appendDebugEvent(isAutomatic ? "Auto connect passed" : "connect passed")
             startAutoRefresh()
-        } catch let error as OppoProtocolError where error == .batteryDecodeFailed || error == .handshakeFailed {
+        } catch where client.isBatteryDecodeFailure(error) || client.isHandshakeFailure(error) {
             state.battery = .unknown
             state.appConnected = false
             state.connectionStatus = .handshakeFailed
@@ -355,12 +399,17 @@ final class EarbudsViewModel: ObservableObject {
         if let device, !isTargetDevice(device) {
             return
         }
+        if let device {
+            await selectAdapter(for: device)
+        } else {
+            await selectAdapter(forDeviceName: state.deviceName)
+        }
 
         do {
             if let device {
-                state.ancMode = try await protocolClient.refreshANC(device: device)
+                state.ancMode = try await headphoneManager.refreshANC(device: device)
             } else {
-                state.ancMode = try await protocolClient.refreshANC(deviceName: state.deviceName)
+                state.ancMode = try await headphoneManager.refreshANC(deviceName: state.deviceName)
             }
         } catch {
             appendDebugEvent("error \(error.localizedDescription)")
@@ -374,12 +423,17 @@ final class EarbudsViewModel: ObservableObject {
         if let currentDevice = state.currentDevice, !isTargetDevice(currentDevice) {
             return
         }
+        if let currentDevice = state.currentDevice {
+            await selectAdapter(for: currentDevice)
+        } else {
+            await selectAdapter(forDeviceName: state.deviceName)
+        }
 
         do {
             if let currentDevice = state.currentDevice {
-                state.ancMode = try await protocolClient.refreshANC(device: currentDevice)
+                state.ancMode = try await headphoneManager.refreshANC(device: currentDevice)
             } else {
-                state.ancMode = try await protocolClient.refreshANC(deviceName: state.deviceName)
+                state.ancMode = try await headphoneManager.refreshANC(deviceName: state.deviceName)
             }
         } catch {
             appendDebugEvent("error \(error.localizedDescription)")
@@ -427,7 +481,7 @@ final class EarbudsViewModel: ObservableObject {
             return true
         }
 
-        return OppoDeviceProfile.isLikelyOppoAudioDevice(snapshot.name)
+        return adapterRegistry.canControl(snapshot)
     }
 
     private func isCurrentDevice(_ snapshot: BluetoothDeviceSnapshot) -> Bool {
